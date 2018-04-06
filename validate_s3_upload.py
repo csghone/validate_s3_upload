@@ -135,6 +135,8 @@ def process(**kwargs):
         logger.error("Local file does not match Remote")
         return -1
 
+    if kwargs["delete_local"]:
+        os.remove(local_file)
     logger.info("Local file matches Remote")
     return 0
 
@@ -154,6 +156,14 @@ def main():
         dest="s3_path",
         help="s3://bucket/dir1/dir2/file or s3://dir1/dir2/",
         required=True
+    )
+    parser.add_argument(
+        "-d",
+        "--delete_local",
+        dest="delete_local",
+        action="store_true",
+        help="Delete local file if checksum matches",
+        default=False
     )
     myargs = parser.parse_args()
 
