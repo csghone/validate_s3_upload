@@ -87,6 +87,18 @@ def calculate_local_etag(local_file, chunk_size):
     return final_etag
 
 
+def get_chunks(etag):
+    if "-" in etag:
+        try:
+            chunks = int(etag.split("-")[1])
+        except ValueError:
+            logger.error("Unexpected ETag: %s", etag)
+            assert False
+    else:
+        chunks = 1
+    return chunks
+
+
 def process(**kwargs):
     local_file = kwargs["local_file"]
     s3_path = kwargs["s3_path"]
@@ -125,15 +137,7 @@ def process(**kwargs):
         logger.error("Mismatch in size: s3: %s, local: %s", s3_size, local_size)
         return -1
 
-
-    if "-" in s3_etag:
-        try:
-            chunks = int(s3_etag.split("-")[1])
-        except ValueError:
-            logger.error("Unexpected ETag: %s", s3_etag)
-            return -1
-    else:
-        chunks = 1
+    chunks = get_chunks(s3_etag)
 
     chunk_size = get_chunk_size(local_file, chunks)
     if kwargs["chunk_size"] is not None:
@@ -141,11 +145,11 @@ def process(**kwargs):
 
     while True:
         local_etag = calculate_local_etag(local_file, chunk_size)
+        if get_chunks(local_etag) != chunks:
+            break
         if local_etag == s3_etag:
             break
         chunk_size += 1024 * 1024
-        if chunk_size > 16 * 1024 * 1024:
-            break
         logger.info("Trying chunk_size: %s MB", chunk_size / 1024 / 1024)
 
     if local_etag != s3_etag:
