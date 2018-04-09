@@ -146,6 +146,7 @@ def process(**kwargs):
         chunk_size += 1024 * 1024
         if chunk_size > 16 * 1024 * 1024:
             break
+        logger.info("Trying chunk_size: %s MB", chunk_size / 1024 / 1024)
 
     if local_etag != s3_etag:
         logger.error("Local file does not match Remote")
