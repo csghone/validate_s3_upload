@@ -56,6 +56,7 @@ def get_s3_object(s3_path):
 
 def get_chunk_size(local_file, chunks):
     filesize = os.stat(local_file).st_size
+    logger.debug("local filesize for: %s: %s", local_file, filesize)
     chunk_size = int(math.ceil(filesize / chunks / 1024.0 / 1024.0))
     logger.info("chunk_size for: %s: %s MB", local_file, chunk_size)
     return chunk_size * 1024 * 1024
@@ -128,12 +129,21 @@ def process(**kwargs):
         chunks = 1
 
     chunk_size = get_chunk_size(local_file, chunks)
+    if kwargs["chunk_size"] is not None:
+        chunk_size = kwargs["chunk_size"] * 1024 * 1024
 
-    local_etag = calculate_local_etag(local_file, chunk_size)
+    while True:
+        local_etag = calculate_local_etag(local_file, chunk_size)
+        if local_etag == s3_etag:
+            break
+        chunk_size += 1024 * 1024
+        if chunk_size > 16 * 1024 * 1024:
+            break
 
     if local_etag != s3_etag:
         logger.error("Local file does not match Remote")
         return -1
+
 
     if kwargs["delete_local"]:
         os.remove(local_file)
@@ -164,6 +174,14 @@ def main():
         action="store_true",
         help="Delete local file if checksum matches",
         default=False
+    )
+    parser.add_argument(
+        "-c",
+        "--chunk_size",
+        dest="chunk_size",
+        type=int,
+        help="Override chunk_size",
+        default=None
     )
     myargs = parser.parse_args()
 
