@@ -118,6 +118,13 @@ def process(**kwargs):
 
     s3_etag = s3_obj["ETag"].strip('"')
     logger.info("S3 Etag: %s", s3_etag)
+    s3_size = int(s3_obj["ContentLength"])
+
+    local_size = os.stat(local_file).st_size
+    if s3_size != local_size:
+        logger.error("Mismatch in size: s3: %s, local: %s", s3_size, local_size)
+        return -1
+
 
     if "-" in s3_etag:
         try:
@@ -144,9 +151,9 @@ def process(**kwargs):
         logger.error("Local file does not match Remote")
         return -1
 
-
     if kwargs["delete_local"]:
         os.remove(local_file)
+
     logger.info("Local file matches Remote")
     return 0
 
