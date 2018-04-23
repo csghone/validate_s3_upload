@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 from __future__ import print_function
 
 import os
@@ -82,6 +82,9 @@ def calculate_local_etag(local_file, chunk_size):
         digests = b"".join(item.digest() for item in md5s)
         final_md5 = hashlib.md5(digests)
         final_etag = "{}-{}".format(final_md5.hexdigest(), len(md5s))
+
+    if final_etag.endswith("-0"):
+        final_etag = final_etag.strip("-0")
 
     logger.info("Etag for: %s: %s", local_file, final_etag)
     return final_etag
