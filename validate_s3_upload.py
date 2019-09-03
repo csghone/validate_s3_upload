@@ -160,6 +160,7 @@ def process(**kwargs):
         return -1
 
     if kwargs["delete_local"]:
+        logger.info("Deleting local file")
         os.remove(local_file)
 
     logger.info("Local file matches Remote")
