@@ -38,6 +38,7 @@ def setup_logging(level=logging.INFO, enable_console=True):
 
 def get_s3_object(inp_s3_path, local_basename=None):
     s3_path = inp_s3_path
+    s3_path = s3_path.replace(r"s3://", "")
 
     remote_basename = os.path.basename(s3_path)
     if remote_basename == "" and local_basename is not None:
