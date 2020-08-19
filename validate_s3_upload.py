@@ -21,6 +21,7 @@ LOG_FORMATTER = logging.Formatter(
 
 S3 = boto3.client("s3")
 
+
 def setup_logging(level=logging.INFO, enable_console=True):
     file_log_handler = logging.handlers.RotatingFileHandler(
         "__" + os.path.basename(__file__) + ".main__" + ".log",
@@ -35,9 +36,12 @@ def setup_logging(level=logging.INFO, enable_console=True):
         handler.setFormatter(fmt=LOG_FORMATTER)
 
 
-def get_s3_object(s3_path):
-    assert s3_path.startswith(r"s3://")
-    s3_path = s3_path.replace(r"s3://", "")
+def get_s3_object(inp_s3_path, local_basename=None):
+    s3_path = inp_s3_path
+
+    remote_basename = os.path.basename(s3_path)
+    if remote_basename == "" and local_basename is not None:
+        s3_path = os.path.join(s3_path, local_basename)
 
     bucket = s3_path.split("/")[0]
     s3_key = "/".join(s3_path.split("/")[1:])
@@ -50,6 +54,14 @@ def get_s3_object(s3_path):
         s3_obj = S3.get_object(Bucket=bucket, Key=s3_key)
     except:
         s3_obj = None
+
+    if s3_obj is None:
+        if s3_path[-1] == "/":
+            logger.error("Cannot find object: %s", s3_path)
+            return None
+        if local_basename is not None:
+            logger.warning("Trying by adding / at the end")
+            return get_s3_object(s3_path + "/" + local_basename)
 
     return s3_obj
 
@@ -86,7 +98,7 @@ def calculate_local_etag(local_file, chunk_size):
     if final_etag.endswith("-0"):
         final_etag = final_etag.strip("-0")
 
-    logger.info("Etag for: %s: %s", local_file, final_etag)
+    logger.debug("Intermediate etag for: %s: %s", local_file, final_etag)
     return final_etag
 
 
@@ -102,48 +114,11 @@ def get_chunks(etag):
     return chunks
 
 
-def process(**kwargs):
-    local_file = kwargs["local_file"]
-    s3_path = kwargs["s3_path"]
-
-    if not os.path.exists(local_file):
-        logger.error("Path does not exist")
-        return -1
-    if not os.path.isfile(local_file):
-        logger.error("Directories/links are not supported")
-        return -1
-
-    local_basename = os.path.basename(local_file)
-    remote_basename = os.path.basename(s3_path)
-
-    if remote_basename == "":
-        s3_path = os.path.join(s3_path, local_basename)
-
-    s3_obj = get_s3_object(s3_path)
-    if s3_obj is None:
-        if s3_path[-1] == "/":
-            logger.error("Cannot find S3 object")
-            return -1
-        s3_path = s3_path + "/" + local_basename
-        logger.warning("Trying by adding / at the end")
-        s3_obj = get_s3_object(s3_path)
-        if s3_obj is None:
-            logger.error("Cannot find S3 object")
-            return -1
-
-    s3_etag = s3_obj["ETag"].strip('"')
-    logger.info("S3 Etag: %s", s3_etag)
-    s3_size = int(s3_obj["ContentLength"])
-
-    local_size = os.stat(local_file).st_size
-    if s3_size != local_size:
-        logger.error("Mismatch in size: s3: %s, local: %s", s3_size, local_size)
-        return -1
-
+def get_local_etag(local_file, s3_etag, inp_chunk_size=None):
     chunks = get_chunks(s3_etag)
 
     chunk_size = get_chunk_size(local_file, chunks)
-    if kwargs["chunk_size"] is not None:
+    if inp_chunk_size is not None:
         chunk_size = kwargs["chunk_size"] * 1024 * 1024
 
     while True:
@@ -155,15 +130,65 @@ def process(**kwargs):
         chunk_size += 1024 * 1024
         logger.info("Trying chunk_size: %s MB", chunk_size / 1024 / 1024)
 
+    logger.info("Local ETag: %s: %s", local_file, local_etag)
+    return local_etag
+
+
+def get_s3_etag(s3_obj):
+    s3_etag = s3_obj["ETag"].strip('"')
+    logger.info("S3 Etag: %s", s3_etag)
+    return s3_etag
+
+
+def get_s3_size(s3_obj):
+    s3_size = int(s3_obj["ContentLength"])
+    return s3_size
+
+
+def compare_files(local_file, s3_path, inp_chunk_size=None):
+    if not os.path.exists(local_file):
+        logger.error("Path does not exist")
+        return False
+    if not os.path.isfile(local_file):
+        logger.error("Directories/links are not supported")
+        return False
+
+    assert s3_path.startswith(r"s3://"), logger.error("Invalid s3_path: %s", s3_path)
+    s3_path = s3_path.replace(r"s3://", "")
+
+    local_basename = os.path.basename(local_file)
+    s3_obj = get_s3_object(s3_path, local_basename)
+    if s3_obj is None:
+        return False
+
+    s3_etag = get_s3_etag(s3_obj)
+    s3_size = get_s3_size(s3_obj)
+
+    local_size = os.stat(local_file).st_size
+    if s3_size != local_size:
+        logger.error("Mismatch in size: s3: %s, local: %s", s3_size, local_size)
+        return False
+
+    local_etag = get_local_etag(local_file, s3_etag, inp_chunk_size)
+
     if local_etag != s3_etag:
         logger.error("Local file does not match Remote")
+        return False
+
+    return True
+
+
+def process(**kwargs):
+    local_file = kwargs["local_file"]
+    s3_path = kwargs["s3_path"]
+    if not compare_files(local_file, s3_path, inp_chunk_size=kwargs["chunk_size"]):
         return -1
 
+    logger.info("Local file matches Remote")
     if kwargs["delete_local"]:
         logger.info("Deleting local file")
         os.remove(local_file)
 
-    logger.info("Local file matches Remote")
     return 0
 
 
